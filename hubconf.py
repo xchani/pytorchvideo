@@ -15,6 +15,7 @@ from pytorchvideo.models.hub import (  # noqa: F401, E402
     slow_r50_detection,
     slowfast_16x8_r101_50_50,
     slowfast_r50,
+    slowfast_r50_charades,
     slowfast_r50_detection,
     slowfast_r101,
     x3d_l,

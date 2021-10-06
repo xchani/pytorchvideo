@@ -7,6 +7,7 @@ from .resnet import c2d_r50, i3d_r50, slow_r50, slow_r50_detection
 from .slowfast import (
     slowfast_16x8_r101_50_50,
     slowfast_r50,
+    slowfast_r50_charades,
     slowfast_r50_detection,
     slowfast_r101,
 )
