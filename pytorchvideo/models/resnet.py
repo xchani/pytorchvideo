@@ -14,6 +14,122 @@ from pytorchvideo.models.stem import (
 )
 
 
+def create_basic_block(
+    *,
+    # Convolution configs.
+    dim_in: int,
+    dim_inner: int,
+    dim_out: int,
+    conv_a_kernel_size: Tuple[int] = (3, 1, 1),
+    conv_a_stride: Tuple[int] = (2, 1, 1),
+    conv_a_padding: Tuple[int] = (1, 0, 0),
+    conv_a: Callable = nn.Conv3d,
+    conv_b_kernel_size: Tuple[int] = (1, 3, 3),
+    conv_b_stride: Tuple[int] = (1, 2, 2),
+    conv_b_padding: Tuple[int] = (0, 1, 1),
+    conv_b_num_groups: int = 1,
+    conv_b_dilation: Tuple[int] = (1, 1, 1),
+    conv_b: Callable = nn.Conv3d,
+    conv_c: Callable = nn.Conv3d,
+    # Norm configs.
+    norm: Callable = nn.BatchNorm3d,
+    norm_eps: float = 1e-5,
+    norm_momentum: float = 0.1,
+    # Activation configs.
+    activation: Callable = nn.ReLU,
+) -> nn.Module:
+    """
+    Basic block: a sequence of spatiotemporal Convolution, Normalization,
+    and Activations repeated in the following order:
+
+    ::
+
+                                    Conv3d (conv_a)
+                                           ↓
+                                 Normalization (norm_a)
+                                           ↓
+                                   Activation (act_a)
+                                           ↓
+                                    Conv3d (conv_b)
+                                           ↓
+                                 Normalization (norm_b)
+
+    Normalization examples include: BatchNorm3d and None (no normalization).
+    Activation examples include: ReLU, Softmax, Sigmoid, and None (no activation).
+
+    Args:
+        dim_in (int): input channel size to the basic block.
+        dim_inner (int): intermediate channel size of the basic.
+        dim_out (int): output channel size of the basic.
+        conv_a_kernel_size (tuple): convolutional kernel size(s) for conv_a.
+        conv_a_stride (tuple): convolutional stride size(s) for conv_a.
+        conv_a_padding (tuple): convolutional padding(s) for conv_a.
+        conv_a (callable): a callable that constructs the conv_a conv layer, examples
+            include nn.Conv3d, OctaveConv, etc
+        conv_b_kernel_size (tuple): convolutional kernel size(s) for conv_b.
+        conv_b_stride (tuple): convolutional stride size(s) for conv_b.
+        conv_b_padding (tuple): convolutional padding(s) for conv_b.
+        conv_b_num_groups (int): number of groups for groupwise convolution for
+            conv_b.
+        conv_b_dilation (tuple): dilation for 3D convolution for conv_b.
+        conv_b (callable): a callable that constructs the conv_b conv layer, examples
+            include nn.Conv3d, OctaveConv, etc
+
+        norm (callable): a callable that constructs normalization layer, examples
+            include nn.BatchNorm3d, None (not performing normalization).
+        norm_eps (float): normalization epsilon.
+        norm_momentum (float): normalization momentum.
+
+        activation (callable): a callable that constructs activation layer, examples
+            include: nn.ReLU, nn.Softmax, nn.Sigmoid, and None (not performing
+            activation).
+
+    Returns:
+        (nn.Module): resnet basic block.
+    """
+    if conv_b_num_groups != 1:
+        raise ValueError("BasicBlock only supports groups=1 and base_width=64")
+    if conv_b_dilation != (1, 1, 1):
+        raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+
+    conv_a = conv_a(
+        in_channels=dim_in,
+        out_channels=dim_out,
+        kernel_size=conv_a_kernel_size,
+        stride=conv_a_stride,
+        padding=conv_a_padding,
+        bias=False,
+    )
+    norm_a = (
+        None
+        if norm is None
+        else norm(num_features=dim_out, eps=norm_eps, momentum=norm_momentum)
+    )
+    act_a = None if activation is None else activation()
+
+    conv_b = conv_b(
+        in_channels=dim_out,
+        out_channels=dim_out,
+        kernel_size=conv_b_kernel_size,
+        stride=conv_b_stride,
+        padding=conv_b_padding,
+        bias=False,
+    )
+    norm_b = (
+        None
+        if norm is None
+        else norm(num_features=dim_out, eps=norm_eps, momentum=norm_momentum)
+    )
+
+    return BasicBlock(
+        conv_a=conv_a,
+        norm_a=norm_a,
+        act_a=act_a,
+        conv_b=conv_b,
+        norm_b=norm_b,
+    )
+
+
 def create_bottleneck_block(
     *,
     # Convolution configs.
@@ -586,7 +702,7 @@ def create_res_stage(
 
 
 # Number of blocks for different stages given the model depth.
-_MODEL_STAGE_DEPTH = {50: (3, 4, 6, 3), 101: (3, 4, 23, 3), 152: (3, 8, 36, 3)}
+_MODEL_STAGE_DEPTH = {18: (2, 2, 2, 2), 34: (3, 4, 6, 3), 50: (3, 4, 6, 3), 101: (3, 4, 23, 3), 152: (3, 8, 36, 3)}
 
 
 def create_resnet(
@@ -762,18 +878,28 @@ def create_resnet(
         depth = stage_depths[idx]
 
         stage_conv_a_kernel = stage_conv_a_kernel_size[idx]
-        stage_conv_a_stride = (stage_temporal_stride[idx], 1, 1)
+        if model_depth < 50:
+            stage_conv_a_stride = (stage_temporal_stride[idx], stage_spatial_h_stride[idx], stage_spatial_h_stride[idx])
+        else:
+            stage_conv_a_stride = (stage_temporal_stride[idx], 1, 1)
         stage_conv_a_padding = (
             [size // 2 for size in stage_conv_a_kernel]
             if isinstance(stage_conv_a_kernel[0], int)
             else [[size // 2 for size in sizes] for sizes in stage_conv_a_kernel]
         )
 
-        stage_conv_b_stride = (
-            1,
-            stage_spatial_h_stride[idx],
-            stage_spatial_w_stride[idx],
-        )
+        if model_depth < 50:
+            stage_conv_b_stride = (
+                1,
+                1,
+                1,
+            )
+        else:
+            stage_conv_b_stride = (
+                1,
+                stage_spatial_h_stride[idx],
+                stage_spatial_w_stride[idx],
+            )
 
         stage = create_res_stage(
             depth=depth,
@@ -1269,6 +1395,67 @@ class SeparableBottleneckBlock(nn.Module):
         x = self.conv_c(x)
         if self.norm_c is not None:
             x = self.norm_c(x)
+        return x
+
+
+class BasicBlock(nn.Module):
+    """
+    Basic block: a sequence of spatiotemporal Convolution, Normalization,
+    and Activations repeated in the following order:
+
+    ::
+
+
+                                    Conv3d (conv_a)
+                                           ↓
+                                 Normalization (norm_a)
+                                           ↓
+                                   Activation (act_a)
+                                           ↓
+                                    Conv3d (conv_b)
+                                           ↓
+                                 Normalization (norm_b)
+
+    The builder can be found in `create_basic_block`.
+    """
+
+    def __init__(
+        self,
+        *,
+        conv_a: nn.Module = None,
+        norm_a: nn.Module = None,
+        act_a: nn.Module = None,
+        conv_b: nn.Module = None,
+        norm_b: nn.Module = None,
+    ) -> None:
+        """
+        Args:
+            conv_a (torch.nn.modules): convolutional module.
+            norm_a (torch.nn.modules): normalization module.
+            act_a (torch.nn.modules): activation module.
+            conv_b (torch.nn.modules): convolutional module.
+            norm_b (torch.nn.modules): normalization module.
+        """
+        super().__init__()
+        set_attributes(self, locals())
+        assert all(op is not None for op in (self.conv_a, self.conv_b))
+        if self.norm_b is not None:
+            # This flag is used for weight initialization.
+            self.norm_b.block_final_bn = True
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Explicitly forward every layer.
+        # Branch2a, for example TxHxW, BN, ReLU.
+        x = self.conv_a(x)
+        if self.norm_a is not None:
+            x = self.norm_a(x)
+        if self.act_a is not None:
+            x = self.act_a(x)
+
+        # Branch2b, for example 1xHxW, BN, ReLU.
+        x = self.conv_b(x)
+        if self.norm_b is not None:
+            x = self.norm_b(x)
         return x
 
 
