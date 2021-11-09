@@ -13,6 +13,7 @@ ResNet style models for video recognition.
 
 root_dir = "https://dl.fbaipublicfiles.com/pytorchvideo/model_zoo"
 checkpoint_paths = {
+    "slow_r18_charades": "checkpoints/charades/SLOW_8x8_R18.pyth",
     "slow_r50": f"{root_dir}/kinetics/SLOW_8x8_R50.pyth",
     "slow_r50_detection": f"{root_dir}/ava/SLOW_4x16_R50_DETECTION.pyth",
     "c2d_r50": f"{root_dir}/kinetics/C2D_8x8_R50.pyth",
@@ -36,6 +37,38 @@ def _resnet(
         state_dict = checkpoint["model_state"]
         model.load_state_dict(state_dict)
     return model
+
+
+def slow_r18_charades(
+    pretrained: bool = False, progress: bool = True, **kwargs: Any
+) -> nn.Module:
+    r"""
+    Slow R18 model architecture [1] with pretrained weights based on 8x8 setting
+    on the Kinetics dataset.
+
+    [1] "SlowFast Networks for Video Recognition"
+        Christoph Feichtenhofer et al
+        https://arxiv.org/pdf/1812.03982.pdf
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on the Kinetics dataset
+        progress (bool): If True, displays a progress bar of the download to stderr
+        kwargs: use these to modify any of the other model settings. All the
+            options are defined in pytorchvideo/models/resnet.py
+
+    NOTE: to use the pretrained model, do not modify the model configuration
+    via the kwargs. Only modify settings via kwargs to initialize a new model
+    without pretrained weights.
+    """
+    return _resnet(
+        pretrained=pretrained,
+        progress=progress,
+        checkpoint_path=checkpoint_paths["slow_r18_charades"],
+        stem_conv_kernel_size=(1, 7, 7),
+        head_pool_kernel_size=(8, 7, 7),
+        model_depth=18,
+        **kwargs,
+    )
 
 
 def slow_r50(
