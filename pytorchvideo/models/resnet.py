@@ -870,7 +870,10 @@ def create_resnet(
     blocks.append(stem)
 
     stage_dim_in = stem_dim_out
-    stage_dim_out = stage_dim_in * 4
+    if model_depth < 50:
+        stage_dim_out = stage_dim_in
+    else:
+        stage_dim_out = stage_dim_in * 4
 
     # Create each stage for resnet.
     for idx in range(len(stage_depths)):
